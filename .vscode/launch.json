@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:langx}",
+            "name": "Debug langx",
+            "target": "langx",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug langx"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:langx}",
+            "name": "Release langx",
+            "target": "langx",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release langx"
+        }
+    ]
+}
