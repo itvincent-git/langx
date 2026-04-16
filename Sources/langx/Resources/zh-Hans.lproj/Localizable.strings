@@ -61,4 +61,8 @@
 "settings.appearance" = "界面";
 "settings.interface_language" = "界面语言";
 "settings.reset" = "恢复默认";
+"menu.open_window" = "打开主窗口";
+"menu.quick_translate" = "打开快捷翻译";
+"menu.open_settings" = "打开设置";
+"menu.quit" = "退出 langx";
 "error.empty_input" = "请先输入要翻译的文本。";

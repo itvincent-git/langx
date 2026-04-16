@@ -8,7 +8,7 @@ struct LangXApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup("langx") {
+        Window("langx", id: AppSceneID.mainWindow) {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 1180, minHeight: 760)
@@ -17,6 +17,47 @@ struct LangXApp: App {
                 }
         }
         .defaultSize(width: 1280, height: 860)
+
+        MenuBarExtra {
+            MenuBarExtraContent(appDelegate: appDelegate)
+                .environmentObject(model)
+        } label: {
+            Label("langx", systemImage: "character.bubble")
+        }
+        .menuBarExtraStyle(.menu)
+    }
+}
+
+private struct MenuBarExtraContent: View {
+    @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var model: AppModel
+
+    let appDelegate: AppDelegate
+
+    var body: some View {
+        Button(model.t("menu.open_window")) {
+            openMainWindow()
+        }
+
+        Button(model.t("menu.quick_translate")) {
+            appDelegate.presentFloatingTranslationPanel()
+        }
+
+        Button(model.t("menu.open_settings")) {
+            model.activeSection = .settings
+            openMainWindow()
+        }
+
+        Divider()
+
+        Button(model.t("menu.quit")) {
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func openMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: AppSceneID.mainWindow)
     }
 }
 
@@ -43,8 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         hotKeyEventCancellable = NotificationCenter.default.publisher(for: .langxGlobalHotKeyPressed)
             .sink { [weak self] _ in
-                self?.floatingPanelController?.present()
+                self?.presentFloatingTranslationPanel()
             }
+    }
+
+    func presentFloatingTranslationPanel() {
+        floatingPanelController?.present()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

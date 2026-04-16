@@ -21,6 +21,10 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppSceneID {
+    static let mainWindow = "main-window"
+}
+
 enum InterfaceLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     case english = "en"
     case simplifiedChinese = "zh-Hans"

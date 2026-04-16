@@ -61,4 +61,8 @@
 "settings.appearance" = "Appearance";
 "settings.interface_language" = "Interface language";
 "settings.reset" = "Reset Defaults";
+"menu.open_window" = "Open Main Window";
+"menu.quick_translate" = "Quick Translate";
+"menu.open_settings" = "Open Settings";
+"menu.quit" = "Quit langx";
 "error.empty_input" = "Enter some text before translating.";
