@@ -6,6 +6,19 @@ import Testing
     #expect(TranslationLanguage.supportedTargets.map(\.code) == ["en", "zh-Hans"])
 }
 
+@Test func globalShortcutDefaultsToOff() async throws {
+    #expect(AppPreferences().globalShortcutPreset == .off)
+}
+
+@Test func globalShortcutPresetsStayStable() async throws {
+    #expect(GlobalShortcutPreset.allCases.map(\.rawValue) == [
+        "off",
+        "optionSpace",
+        "commandShiftSpace",
+        "controlOptionSpace",
+    ])
+}
+
 @Test func codexTranslationUsesCostEffectiveModel() async throws {
     #expect(CodexTranslationDefaults.model == "gpt-5.4-mini")
 }

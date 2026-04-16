@@ -78,6 +78,24 @@ enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Sendable {
     }
 }
 
+enum GlobalShortcutPreset: String, CaseIterable, Codable, Identifiable, Sendable {
+    case off
+    case optionSpace
+    case commandShiftSpace
+    case controlOptionSpace
+
+    var id: String { rawValue }
+
+    var localizationKey: String {
+        switch self {
+        case .off: "settings.shortcut.off"
+        case .optionSpace: "settings.shortcut.option_space"
+        case .commandShiftSpace: "settings.shortcut.command_shift_space"
+        case .controlOptionSpace: "settings.shortcut.control_option_space"
+        }
+    }
+}
+
 struct TranslationLanguage: Codable, Hashable, Identifiable, Sendable {
     let code: String
     let englishName: String
@@ -164,6 +182,7 @@ struct AppPreferences: Codable, Sendable {
     var defaultTargetLanguage: TranslationLanguage = .english
     var interfaceLanguage: InterfaceLanguage = .english
     var preferStreaming: Bool = true
+    var globalShortcutPreset: GlobalShortcutPreset = .off
     var customExecutablePaths: [String: String] = [:]
 
     mutating func setExecutablePath(_ path: String, for engine: TranslationEngine) {

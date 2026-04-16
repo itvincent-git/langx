@@ -16,6 +16,8 @@
 "translate.footer" = "Translation records are saved locally after each successful run.";
 "translate.streaming_on" = "Streaming on";
 "translate.streaming_off" = "Streaming off";
+"floating.title" = "Quick Translate";
+"floating.subtitle" = "Use the global shortcut to bring this translator to the front from anywhere.";
 "metric.detected_language" = "Detected Language";
 "metric.detected_language_detail" = "Auto-detected from the current source text.";
 "metric.engine" = "Active Engine";
@@ -45,6 +47,13 @@
 "settings.subtitle" = "Configure engines, language defaults, and UI localization.";
 "settings.general" = "General";
 "settings.default_target" = "Default target language";
+"settings.quick_access" = "Quick Access";
+"settings.shortcut" = "Global shortcut";
+"settings.shortcut_hint" = "Register a system-wide shortcut to open the floating translator.";
+"settings.shortcut.off" = "Off";
+"settings.shortcut.option_space" = "Option + Space";
+"settings.shortcut.command_shift_space" = "Command + Shift + Space";
+"settings.shortcut.control_option_space" = "Control + Option + Space";
 "settings.engine" = "Engine";
 "settings.streaming" = "Enable streaming output";
 "settings.streaming_hint" = "If the selected CLI supports streaming, show translated content progressively.";

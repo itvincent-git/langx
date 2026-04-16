@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var logs: [AppLogEntry] = []
     @Published var isTranslating = false
     @Published var errorMessage: String?
+    @Published var floatingPanelFocusToken = UUID()
 
     private let storage: AppStorage
     private let detector: LanguageDetector
@@ -147,6 +148,11 @@ final class AppModel: ObservableObject {
         persistPreferences()
     }
 
+    func selectGlobalShortcutPreset(_ preset: GlobalShortcutPreset) {
+        preferences.globalShortcutPreset = preset
+        persistPreferences()
+    }
+
     func setExecutablePath(_ path: String, for engine: TranslationEngine) {
         preferences.setExecutablePath(path, for: engine)
         persistPreferences()
@@ -266,6 +272,14 @@ final class AppModel: ObservableObject {
 
     func formattedLogLine(_ entry: AppLogEntry) -> String {
         "[\(formattedLogTimestamp(entry.timestamp))] [\(entry.level.rawValue)] [\(entry.category)] \(entry.message)"
+    }
+
+    func shortcutPresetTitle(_ preset: GlobalShortcutPreset) -> String {
+        t(preset.localizationKey)
+    }
+
+    func requestFloatingPanelFocus() {
+        floatingPanelFocusToken = UUID()
     }
 
     private func sectionTitle(for date: Date) -> String {

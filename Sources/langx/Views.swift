@@ -561,6 +561,31 @@ private struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 18) {
+                    SettingsSectionTitle(icon: "keyboard", title: model.t("settings.quick_access"))
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(model.t("settings.shortcut"))
+                            .font(.system(size: 14, weight: .semibold))
+
+                        Text(model.t("settings.shortcut_hint"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.langxSubtext)
+
+                        HStack(spacing: 12) {
+                            ForEach(GlobalShortcutPreset.allCases) { preset in
+                                SelectionChip(
+                                    title: model.shortcutPresetTitle(preset),
+                                    isSelected: model.preferences.globalShortcutPreset == preset
+                                ) {
+                                    model.selectGlobalShortcutPreset(preset)
+                                }
+                            }
+                        }
+                    }
+                    .langxCardStyle()
+                }
+
+                VStack(alignment: .leading, spacing: 18) {
                     SettingsSectionTitle(icon: "terminal", title: model.t("settings.engine"))
 
                     VStack(alignment: .leading, spacing: 18) {

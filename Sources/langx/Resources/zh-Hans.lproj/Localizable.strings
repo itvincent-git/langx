@@ -16,6 +16,8 @@
 "translate.footer" = "每次成功翻译后，记录会自动保存在本地。";
 "translate.streaming_on" = "流式开启";
 "translate.streaming_off" = "流式关闭";
+"floating.title" = "快捷翻译";
+"floating.subtitle" = "可通过全局快捷键从任意位置快速呼出这个浮动翻译窗。";
 "metric.detected_language" = "识别语言";
 "metric.detected_language_detail" = "根据当前输入内容自动识别。";
 "metric.engine" = "当前引擎";
@@ -45,6 +47,13 @@
 "settings.subtitle" = "配置引擎、默认语言和界面本地化。";
 "settings.general" = "通用";
 "settings.default_target" = "默认目标语言";
+"settings.quick_access" = "快速唤起";
+"settings.shortcut" = "全局快捷键";
+"settings.shortcut_hint" = "注册系统级快捷键，用来打开浮动翻译窗。";
+"settings.shortcut.off" = "关闭";
+"settings.shortcut.option_space" = "Option + Space";
+"settings.shortcut.command_shift_space" = "Command + Shift + Space";
+"settings.shortcut.control_option_space" = "Control + Option + Space";
 "settings.engine" = "引擎";
 "settings.streaming" = "启用流式输出";
 "settings.streaming_hint" = "如果所选 CLI 支持流式输出，则实时展示翻译内容。";
