@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import Foundation
 import NaturalLanguage
 import SwiftUI
@@ -74,6 +75,60 @@ enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Sendable {
                 "/opt/homebrew/bin/claude",
                 "/usr/bin/claude",
             ]
+        }
+    }
+}
+
+enum QuickActionShortcutPreset: String, CaseIterable, Codable, Identifiable, Sendable {
+    case disabled
+    case optionSpace
+    case shiftCommandSpace
+    case optionCommandReturn
+
+    var id: String { rawValue }
+
+    var carbonKeyCode: UInt32? {
+        switch self {
+        case .disabled:
+            nil
+        case .optionSpace, .shiftCommandSpace:
+            49
+        case .optionCommandReturn:
+            36
+        }
+    }
+
+    var carbonModifiers: UInt32 {
+        switch self {
+        case .disabled:
+            0
+        case .optionSpace:
+            UInt32(optionKey)
+        case .shiftCommandSpace:
+            UInt32(shiftKey | cmdKey)
+        case .optionCommandReturn:
+            UInt32(optionKey | cmdKey)
+        }
+    }
+
+    func localizedName(in language: InterfaceLanguage) -> String {
+        switch (self, language) {
+        case (.disabled, .simplifiedChinese):
+            "关闭"
+        case (.optionSpace, .simplifiedChinese):
+            "Option + Space"
+        case (.shiftCommandSpace, .simplifiedChinese):
+            "Shift + Command + Space"
+        case (.optionCommandReturn, .simplifiedChinese):
+            "Option + Command + Return"
+        case (.disabled, _):
+            "Off"
+        case (.optionSpace, _):
+            "Option + Space"
+        case (.shiftCommandSpace, _):
+            "Shift + Command + Space"
+        case (.optionCommandReturn, _):
+            "Option + Command + Return"
         }
     }
 }
@@ -159,11 +214,33 @@ struct TranslationLanguage: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+enum TranslationInputOrigin: String, Codable, Hashable, Sendable {
+    case manual
+    case clipboard
+
+    func localizedName(in language: InterfaceLanguage) -> String {
+        switch (self, language) {
+        case (.manual, .simplifiedChinese):
+            "手动输入"
+        case (.clipboard, .simplifiedChinese):
+            "剪贴板"
+        case (.manual, _):
+            "Manual"
+        case (.clipboard, _):
+            "Clipboard"
+        }
+    }
+}
+
 struct AppPreferences: Codable, Sendable {
     var selectedEngine: TranslationEngine = .codex
     var defaultTargetLanguage: TranslationLanguage = .english
     var interfaceLanguage: InterfaceLanguage = .english
     var preferStreaming: Bool = true
+    var quickActionShortcut: QuickActionShortcutPreset = .optionSpace
+    var populateClipboardOnQuickOpen: Bool = true
+    var autoCopyTranslationResult: Bool = false
+    var showMenuBarExtra: Bool = true
     var customExecutablePaths: [String: String] = [:]
 
     mutating func setExecutablePath(_ path: String, for engine: TranslationEngine) {
@@ -189,6 +266,19 @@ struct TranslationRecord: Codable, Identifiable, Hashable, Sendable {
     let engine: TranslationEngine
     let createdAt: Date
     let wasStreamed: Bool
+    let inputOrigin: TranslationInputOrigin
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sourceText
+        case translatedText
+        case sourceLanguageCode
+        case targetLanguageCode
+        case engine
+        case createdAt
+        case wasStreamed
+        case inputOrigin
+    }
 
     init(
         id: UUID = UUID(),
@@ -198,7 +288,8 @@ struct TranslationRecord: Codable, Identifiable, Hashable, Sendable {
         targetLanguageCode: String,
         engine: TranslationEngine,
         createdAt: Date,
-        wasStreamed: Bool
+        wasStreamed: Bool,
+        inputOrigin: TranslationInputOrigin = .manual
     ) {
         self.id = id
         self.sourceText = sourceText
@@ -208,6 +299,20 @@ struct TranslationRecord: Codable, Identifiable, Hashable, Sendable {
         self.engine = engine
         self.createdAt = createdAt
         self.wasStreamed = wasStreamed
+        self.inputOrigin = inputOrigin
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        sourceText = try container.decode(String.self, forKey: .sourceText)
+        translatedText = try container.decode(String.self, forKey: .translatedText)
+        sourceLanguageCode = try container.decode(String.self, forKey: .sourceLanguageCode)
+        targetLanguageCode = try container.decode(String.self, forKey: .targetLanguageCode)
+        engine = try container.decode(TranslationEngine.self, forKey: .engine)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        wasStreamed = try container.decode(Bool.self, forKey: .wasStreamed)
+        inputOrigin = try container.decodeIfPresent(TranslationInputOrigin.self, forKey: .inputOrigin) ?? .manual
     }
 
     var sourceLanguage: TranslationLanguage {
@@ -337,6 +442,7 @@ actor AppStorage {
             "source_language",
             "target_language",
             "streamed",
+            "input_origin",
             "source_text",
             "translated_text",
         ].joined(separator: ",")
@@ -349,6 +455,7 @@ actor AppStorage {
                 escapeCSV(record.sourceLanguageCode),
                 escapeCSV(record.targetLanguageCode),
                 escapeCSV(record.wasStreamed ? "true" : "false"),
+                escapeCSV(record.inputOrigin.rawValue),
                 escapeCSV(record.sourceText),
                 escapeCSV(record.translatedText),
             ].joined(separator: ",")
