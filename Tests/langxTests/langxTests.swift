@@ -6,6 +6,10 @@ import Testing
     #expect(TranslationLanguage.supportedTargets.map(\.code) == ["en", "zh-Hans"])
 }
 
+@Test func codexTranslationUsesCostEffectiveModel() async throws {
+    #expect(CodexTranslationDefaults.model == "gpt-5.4-mini")
+}
+
 @Test func csvExportEscapesQuotes() async throws {
     let record = TranslationRecord(
         sourceText: "hello, \"world\"",

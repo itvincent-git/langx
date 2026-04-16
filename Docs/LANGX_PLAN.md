@@ -45,6 +45,7 @@
 - `codex`
   - Launches one long-lived `codex app-server` subprocess over stdio
   - Uses JSONL / JSON-RPC to `initialize`, `thread/start`, and `turn/start`
+  - Pins translation threads to `gpt-5.4-mini` to keep cost aligned with the translation use case
   - Reuses the same subprocess across translations while keeping each translation on a fresh ephemeral thread
 - `gemini`
   - Uses `--prompt`

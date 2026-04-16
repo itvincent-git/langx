@@ -1,5 +1,9 @@
 import Foundation
 
+enum CodexTranslationDefaults {
+    static let model = "gpt-5.4-mini"
+}
+
 actor CodexAppServerClient {
     private struct PendingRequest {
         let method: String
@@ -189,6 +193,7 @@ actor CodexAppServerClient {
         let result = try await sendRequest(
             method: "thread/start",
             params: [
+                "model": CodexTranslationDefaults.model,
                 "cwd": workingDirectory,
                 "approvalPolicy": "never",
                 "sandbox": "read-only",
