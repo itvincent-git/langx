@@ -17,13 +17,11 @@ final class AppModel: ObservableObject {
     @Published var logs: [AppLogEntry] = []
     @Published var isTranslating = false
     @Published var errorMessage: String?
-    @Published private(set) var quickTranslateActivationToken = UUID()
 
     private let storage: AppStorage
     private let detector: LanguageDetector
     private let translator: CLITranslationService
     private var detectionTask: Task<Void, Never>?
-    private var currentInputOrigin: TranslationInputOrigin = .manual
 
     init(
         storage: AppStorage = .shared,
@@ -52,10 +50,6 @@ final class AppModel: ObservableObject {
 
     var selectedRecord: TranslationRecord? {
         history.first(where: { $0.id == selectedHistoryID })
-    }
-
-    var recentHistory: [TranslationRecord] {
-        Array(history.prefix(3))
     }
 
     var filteredHistory: [TranslationRecord] {
@@ -111,7 +105,6 @@ final class AppModel: ObservableObject {
         sourceText = ""
         detectedSourceLanguage = .automatic
         errorMessage = nil
-        currentInputOrigin = .manual
     }
 
     func scheduleDetection() {
@@ -154,26 +147,6 @@ final class AppModel: ObservableObject {
         persistPreferences()
     }
 
-    func setQuickActionShortcut(_ preset: QuickActionShortcutPreset) {
-        preferences.quickActionShortcut = preset
-        persistPreferences()
-    }
-
-    func setPopulateClipboardOnQuickOpen(_ enabled: Bool) {
-        preferences.populateClipboardOnQuickOpen = enabled
-        persistPreferences()
-    }
-
-    func setAutoCopyTranslationResult(_ enabled: Bool) {
-        preferences.autoCopyTranslationResult = enabled
-        persistPreferences()
-    }
-
-    func setMenuBarExtraEnabled(_ enabled: Bool) {
-        preferences.showMenuBarExtra = enabled
-        persistPreferences()
-    }
-
     func setExecutablePath(_ path: String, for engine: TranslationEngine) {
         preferences.setExecutablePath(path, for: engine)
         persistPreferences()
@@ -191,32 +164,6 @@ final class AppModel: ObservableObject {
         Task {
             await runTranslation()
         }
-    }
-
-    func prepareQuickTranslatePresentation(prefillFromClipboard: Bool) {
-        activeSection = .translate
-        errorMessage = nil
-
-        if prefillFromClipboard,
-           let clipboardText = readClipboardText(),
-           clipboardText != sourceText {
-            importText(clipboardText, origin: .clipboard, clearTranslation: true)
-        }
-
-        quickTranslateActivationToken = UUID()
-    }
-
-    func translateClipboard() {
-        guard let clipboardText = readClipboardText() else {
-            activeSection = .translate
-            errorMessage = t("error.empty_clipboard")
-            quickTranslateActivationToken = UUID()
-            return
-        }
-
-        importText(clipboardText, origin: .clipboard, clearTranslation: true)
-        quickTranslateActivationToken = UUID()
-        translate()
     }
 
     func clearHistory() {
@@ -284,13 +231,6 @@ final class AppModel: ObservableObject {
         NSPasteboard.general.setString(translatedText, forType: .string)
     }
 
-    func copyLatestTranslation() {
-        guard let record = history.first else {
-            return
-        }
-        copyRecord(record)
-    }
-
     func copyRecord(_ record: TranslationRecord) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(record.translatedText, forType: .string)
@@ -301,7 +241,6 @@ final class AppModel: ObservableObject {
         sourceText = record.sourceText
         translatedText = record.translatedText
         detectedSourceLanguage = record.sourceLanguage
-        currentInputOrigin = record.inputOrigin
 
         if let target = TranslationLanguage.supportedTargets.first(where: { $0.code == record.targetLanguageCode }) {
             preferences.defaultTargetLanguage = target
@@ -402,17 +341,12 @@ final class AppModel: ObservableObject {
                 targetLanguageCode: preferences.defaultTargetLanguage.code,
                 engine: preferences.selectedEngine,
                 createdAt: Date(),
-                wasStreamed: output.usedStreaming,
-                inputOrigin: currentInputOrigin
+                wasStreamed: output.usedStreaming
             )
 
             history.insert(record, at: 0)
             selectedHistoryID = record.id
             await storage.saveHistory(history)
-
-            if preferences.autoCopyTranslationResult {
-                copyTranslatedText()
-            }
         } catch let error as TranslationServiceError {
             errorMessage = error.localizedMessage(in: preferences.interfaceLanguage)
             appendLog(
@@ -444,25 +378,5 @@ final class AppModel: ObservableObject {
         Task {
             await storage.savePreferences(snapshot)
         }
-    }
-
-    private func importText(_ text: String, origin: TranslationInputOrigin, clearTranslation: Bool) {
-        activeSection = .translate
-        sourceText = text
-        if clearTranslation {
-            translatedText = ""
-        }
-        errorMessage = nil
-        currentInputOrigin = origin
-        scheduleDetection()
-    }
-
-    private func readClipboardText() -> String? {
-        guard let value = NSPasteboard.general.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !value.isEmpty else {
-            return nil
-        }
-        return value
     }
 }
