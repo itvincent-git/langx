@@ -38,6 +38,14 @@ enum TranslationServiceError: LocalizedError {
 final class CLITranslationService: @unchecked Sendable {
     private let fileManager = FileManager.default
     private let runner = ProcessRunner()
+    private let codexClient = CodexAppServerClient()
+
+    deinit {
+        let codexClient = self.codexClient
+        Task {
+            await codexClient.shutdown()
+        }
+    }
 
     func findExecutable(for engine: TranslationEngine) -> String? {
         let pathComponents = (ProcessInfo.processInfo.environment["PATH"] ?? "")
@@ -117,50 +125,13 @@ final class CLITranslationService: @unchecked Sendable {
         preferStreaming: Bool,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
-        let outputURL = fileManager.temporaryDirectory.appendingPathComponent("langx-codex-\(UUID().uuidString).txt")
-        let parser = StreamParserBox()
-
-        let result = try await runner.run(
+        try await codexClient.translate(
             executablePath: executable,
-            arguments: [
-                "exec",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--sandbox", "read-only",
-                "--color", "never",
-                "--json",
-                "-o", outputURL.path,
-                "-",
-            ],
-            stdin: prompt
-        ) { chunk in
-            guard preferStreaming else {
-                return
-            }
-            let deltas = await parser.ingest(chunk)
-            for delta in deltas where !delta.isEmpty {
-                await onChunk(delta)
-            }
-        }
-
-        guard result.exitCode == 0 else {
-            throw TranslationServiceError.commandFailed(result.stderr.isEmpty ? result.stdout : result.stderr)
-        }
-
-        let fileText = (
-            try? String(contentsOf: outputURL, encoding: .utf8)
-        )?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parserText = await parser.finalize(stdout: result.stdout)
-        let finalText = fileText?.isEmpty == false ? fileText! : parserText
-
-        try? fileManager.removeItem(at: outputURL)
-
-        guard !finalText.isEmpty else {
-            throw TranslationServiceError.emptyResponse
-        }
-
-        let usedStreaming = preferStreaming ? await parser.emitted : false
-        return TranslationRunOutput(finalText: finalText, usedStreaming: usedStreaming)
+            workingDirectory: fileManager.homeDirectoryForCurrentUser.path,
+            prompt: prompt,
+            preferStreaming: preferStreaming,
+            onChunk: onChunk
+        )
     }
 
     private func runGemini(

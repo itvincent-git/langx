@@ -43,9 +43,9 @@
 ### CLI strategy
 
 - `codex`
-  - Uses `codex exec --json -o <file> -`
-  - Reads streamed JSON events when available
-  - Reads the final translated message from the output file for reliability
+  - Launches one long-lived `codex app-server` subprocess over stdio
+  - Uses JSONL / JSON-RPC to `initialize`, `thread/start`, and `turn/start`
+  - Reuses the same subprocess across translations while keeping each translation on a fresh ephemeral thread
 - `gemini`
   - Uses `--prompt`
   - Uses `--output-format stream-json` when streaming is enabled

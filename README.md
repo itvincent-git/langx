@@ -26,5 +26,6 @@ swift test
 ## Notes
 
 - The app resolves `codex`, `gemini`, and `claude` from the current `PATH` and several common install paths.
+- `codex` is integrated through a persistent `codex app-server` stdio session; `gemini` and `claude` still run per-request CLI invocations.
 - You can override executable paths in the Settings screen.
 - Product, design, and engineering notes live in [Docs/LANGX_PLAN.md](Docs/LANGX_PLAN.md).
