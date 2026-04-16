@@ -69,53 +69,84 @@ final class CLITranslationService: @unchecked Sendable {
         engine: TranslationEngine,
         executablePath: String,
         preferStreaming: Bool,
+        onLog: @escaping AppLogHandler = AppLogger.noop,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
-        let executable = try resolveExecutable(engine: engine, customPath: executablePath)
+        await onLog(
+            .info,
+            "translator",
+            "Preparing \(engine.displayName) request. source=\(sourceLanguage.code) target=\(targetLanguage.code) streaming=\(preferStreaming)"
+        )
+
+        let executable = try await resolveExecutable(
+            engine: engine,
+            customPath: executablePath,
+            onLog: onLog
+        )
         let prompt = makePrompt(
             sourceText: sourceText,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage
         )
+        await onLog(.debug, "translator", "Prompt prepared (\(prompt.count) chars).")
 
-        switch engine {
-        case .codex:
-            return try await runCodex(
-                executable: executable,
-                prompt: prompt,
-                preferStreaming: preferStreaming,
-                onChunk: onChunk
-            )
-        case .gemini:
-            return try await runGemini(
-                executable: executable,
-                prompt: prompt,
-                preferStreaming: preferStreaming,
-                onChunk: onChunk
-            )
-        case .claude:
-            return try await runClaude(
-                executable: executable,
-                prompt: prompt,
-                preferStreaming: preferStreaming,
-                onChunk: onChunk
-            )
+        do {
+            switch engine {
+            case .codex:
+                return try await runCodex(
+                    executable: executable,
+                    prompt: prompt,
+                    preferStreaming: preferStreaming,
+                    onLog: onLog,
+                    onChunk: onChunk
+                )
+            case .gemini:
+                return try await runGemini(
+                    executable: executable,
+                    prompt: prompt,
+                    preferStreaming: preferStreaming,
+                    onLog: onLog,
+                    onChunk: onChunk
+                )
+            case .claude:
+                return try await runClaude(
+                    executable: executable,
+                    prompt: prompt,
+                    preferStreaming: preferStreaming,
+                    onLog: onLog,
+                    onChunk: onChunk
+                )
+            }
+        } catch let error as TranslationServiceError {
+            await onLog(.error, "translator", error.errorDescription ?? "Translation failed.")
+            throw error
+        } catch {
+            await onLog(.error, "translator", error.localizedDescription)
+            throw error
         }
     }
 
-    private func resolveExecutable(engine: TranslationEngine, customPath: String) throws -> String {
+    private func resolveExecutable(
+        engine: TranslationEngine,
+        customPath: String,
+        onLog: @escaping AppLogHandler
+    ) async throws -> String {
         let trimmed = customPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             guard fileManager.isExecutableFile(atPath: trimmed) else {
+                await onLog(.error, "executable", "Configured executable path is not executable: \(trimmed)")
                 throw TranslationServiceError.executableNotFound(trimmed)
             }
+            await onLog(.debug, "executable", "Using configured executable path: \(trimmed)")
             return trimmed
         }
 
         if let detected = findExecutable(for: engine) {
+            await onLog(.debug, "executable", "Resolved executable from PATH/candidates: \(detected)")
             return detected
         }
 
+        await onLog(.error, "executable", "Unable to resolve executable named \(engine.executableName)")
         throw TranslationServiceError.executableNotFound(engine.executableName)
     }
 
@@ -123,13 +154,16 @@ final class CLITranslationService: @unchecked Sendable {
         executable: String,
         prompt: String,
         preferStreaming: Bool,
+        onLog: @escaping AppLogHandler,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
-        try await codexClient.translate(
+        await onLog(.info, "codex", "Launching Codex app-server via \(executable)")
+        return try await codexClient.translate(
             executablePath: executable,
             workingDirectory: fileManager.homeDirectoryForCurrentUser.path,
             prompt: prompt,
             preferStreaming: preferStreaming,
+            onLog: onLog,
             onChunk: onChunk
         )
     }
@@ -138,18 +172,27 @@ final class CLITranslationService: @unchecked Sendable {
         executable: String,
         prompt: String,
         preferStreaming: Bool,
+        onLog: @escaping AppLogHandler,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
         let parser = StreamParserBox()
         let format = preferStreaming ? "stream-json" : "text"
+        let arguments = [
+            "--prompt", prompt,
+            "--approval-mode", "plan",
+            "--output-format", format,
+        ]
+
+        await onLog(
+            .info,
+            "process",
+            "Launching Gemini CLI: \(DebugLogFormatter.command(executablePath: executable, arguments: arguments))"
+        )
 
         let result = try await runner.run(
             executablePath: executable,
-            arguments: [
-                "--prompt", prompt,
-                "--approval-mode", "plan",
-                "--output-format", format,
-            ]
+            arguments: arguments,
+            onLog: onLog
         ) { chunk in
             guard preferStreaming else {
                 return
@@ -161,6 +204,11 @@ final class CLITranslationService: @unchecked Sendable {
         }
 
         guard result.exitCode == 0 else {
+            await onLog(
+                .error,
+                "process",
+                "Gemini CLI exited with code \(result.exitCode): \(DebugLogFormatter.preview(result.stderr.isEmpty ? result.stdout : result.stderr))"
+            )
             throw TranslationServiceError.commandFailed(result.stderr.isEmpty ? result.stdout : result.stderr)
         }
 
@@ -169,10 +217,16 @@ final class CLITranslationService: @unchecked Sendable {
             : bestEffortFinalText(from: result.stdout)
 
         guard !finalText.isEmpty else {
+            await onLog(.error, "translator", "Gemini CLI completed without returning translated text.")
             throw TranslationServiceError.emptyResponse
         }
 
         let usedStreaming = preferStreaming ? await parser.emitted : false
+        await onLog(
+            .info,
+            "translator",
+            "Gemini CLI completed. streamed=\(usedStreaming) output=\(finalText.count) chars"
+        )
         return TranslationRunOutput(finalText: finalText, usedStreaming: usedStreaming)
     }
 
@@ -180,18 +234,27 @@ final class CLITranslationService: @unchecked Sendable {
         executable: String,
         prompt: String,
         preferStreaming: Bool,
+        onLog: @escaping AppLogHandler,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
         let parser = StreamParserBox()
         let format = preferStreaming ? "stream-json" : "text"
+        let arguments = [
+            "--print",
+            "--output-format", format,
+            prompt,
+        ]
+
+        await onLog(
+            .info,
+            "process",
+            "Launching Claude Code: \(DebugLogFormatter.command(executablePath: executable, arguments: arguments))"
+        )
 
         let result = try await runner.run(
             executablePath: executable,
-            arguments: [
-                "--print",
-                "--output-format", format,
-                prompt,
-            ]
+            arguments: arguments,
+            onLog: onLog
         ) { chunk in
             guard preferStreaming else {
                 return
@@ -203,6 +266,11 @@ final class CLITranslationService: @unchecked Sendable {
         }
 
         guard result.exitCode == 0 else {
+            await onLog(
+                .error,
+                "process",
+                "Claude Code exited with code \(result.exitCode): \(DebugLogFormatter.preview(result.stderr.isEmpty ? result.stdout : result.stderr))"
+            )
             throw TranslationServiceError.commandFailed(result.stderr.isEmpty ? result.stdout : result.stderr)
         }
 
@@ -211,10 +279,16 @@ final class CLITranslationService: @unchecked Sendable {
             : bestEffortFinalText(from: result.stdout)
 
         guard !finalText.isEmpty else {
+            await onLog(.error, "translator", "Claude Code completed without returning translated text.")
             throw TranslationServiceError.emptyResponse
         }
 
         let usedStreaming = preferStreaming ? await parser.emitted : false
+        await onLog(
+            .info,
+            "translator",
+            "Claude Code completed. streamed=\(usedStreaming) output=\(finalText.count) chars"
+        )
         return TranslationRunOutput(finalText: finalText, usedStreaming: usedStreaming)
     }
 
@@ -270,6 +344,7 @@ private final class ProcessRunner: @unchecked Sendable {
         executablePath: String,
         arguments: [String],
         stdin: String? = nil,
+        onLog: @escaping AppLogHandler = AppLogger.noop,
         onStdout: @escaping @Sendable (String) async -> Void
     ) async throws -> ProcessRunResult {
         try await withCheckedThrowingContinuation { continuation in
@@ -297,6 +372,7 @@ private final class ProcessRunner: @unchecked Sendable {
                 state.appendStdout(data)
                 let chunk = String(decoding: data, as: UTF8.self)
                 Task {
+                    await onLog(.debug, "stdout", "\(data.count) bytes: \(DebugLogFormatter.preview(chunk))")
                     await onStdout(chunk)
                 }
             }
@@ -307,6 +383,10 @@ private final class ProcessRunner: @unchecked Sendable {
                     return
                 }
                 state.appendStderr(data)
+                let chunk = String(decoding: data, as: UTF8.self)
+                Task {
+                    await onLog(.debug, "stderr", "\(data.count) bytes: \(DebugLogFormatter.preview(chunk))")
+                }
             }
 
             process.terminationHandler = { process in
@@ -317,14 +397,22 @@ private final class ProcessRunner: @unchecked Sendable {
                     state.appendStdout(trailingOut)
                     let chunk = String(decoding: trailingOut, as: UTF8.self)
                     Task {
+                        await onLog(.debug, "stdout", "\(trailingOut.count) bytes: \(DebugLogFormatter.preview(chunk))")
                         await onStdout(chunk)
                     }
                 }
 
                 if !trailingErr.isEmpty {
                     state.appendStderr(trailingErr)
+                    let chunk = String(decoding: trailingErr, as: UTF8.self)
+                    Task {
+                        await onLog(.debug, "stderr", "\(trailingErr.count) bytes: \(DebugLogFormatter.preview(chunk))")
+                    }
                 }
 
+                Task {
+                    await onLog(.info, "process", "Process exited with code \(process.terminationStatus).")
+                }
                 finish(
                     .success(
                         ProcessRunResult(
@@ -348,12 +436,25 @@ private final class ProcessRunner: @unchecked Sendable {
                 }
 
                 try process.run()
+                Task {
+                    await onLog(
+                        .debug,
+                        "process",
+                        "Process started: \(DebugLogFormatter.command(executablePath: executablePath, arguments: arguments))"
+                    )
+                }
 
                 if let stdin {
                     stdinPipe.fileHandleForWriting.write(Data(stdin.utf8))
                     try? stdinPipe.fileHandleForWriting.close()
+                    Task {
+                        await onLog(.debug, "stdin", "Wrote \(stdin.count) chars to process stdin.")
+                    }
                 }
             } catch {
+                Task {
+                    await onLog(.error, "process", "Process launch failed: \(error.localizedDescription)")
+                }
                 finish(.failure(TranslationServiceError.processLaunchFailed(error.localizedDescription)))
             }
         }

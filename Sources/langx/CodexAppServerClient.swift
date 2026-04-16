@@ -62,16 +62,21 @@ actor CodexAppServerClient {
     private var pendingRequests: [RequestID: PendingRequest] = [:]
     private var activeTurns: [String: ActiveTurn] = [:]
     private var initialized = false
+    private var logHandler: AppLogHandler = AppLogger.noop
 
     func translate(
         executablePath: String,
         workingDirectory: String,
         prompt: String,
         preferStreaming: Bool,
+        onLog: @escaping AppLogHandler = AppLogger.noop,
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
+        logHandler = onLog
+        await log(.info, "codex", "Preparing Codex app-server translation. cwd=\(workingDirectory) streaming=\(preferStreaming)")
         try await ensureServer(executablePath: executablePath)
         let threadID = try await createThread(workingDirectory: workingDirectory)
+        await log(.debug, "codex", "Created thread \(threadID)")
 
         return try await withCheckedThrowingContinuation { continuation in
             activeTurns[threadID] = ActiveTurn(
@@ -84,6 +89,7 @@ actor CodexAppServerClient {
                 do {
                     let turnID = try await self.startTurn(threadID: threadID, prompt: prompt)
                     self.attachTurnID(turnID, to: threadID)
+                    await self.log(.debug, "codex", "Started turn \(turnID) for thread \(threadID)")
                 } catch {
                     self.failTurn(threadID: threadID, error: error)
                 }
@@ -99,9 +105,11 @@ actor CodexAppServerClient {
         if initialized,
            currentExecutablePath == executablePath,
            process?.isRunning == true {
+            await log(.debug, "codex", "Reusing running Codex app-server.")
             return
         }
 
+        await log(.info, "codex", "Starting Codex app-server with executable \(executablePath)")
         resetServerState(
             error: TranslationServiceError.processLaunchFailed("Codex app-server restarted."),
             terminateProcess: true
@@ -158,6 +166,7 @@ actor CodexAppServerClient {
         do {
             try process.run()
         } catch {
+            await log(.error, "codex", "Failed to start Codex app-server: \(error.localizedDescription)")
             throw TranslationServiceError.processLaunchFailed(error.localizedDescription)
         }
 
@@ -181,8 +190,9 @@ actor CodexAppServerClient {
                     ],
                 ]
             )
-            try sendNotification(method: "initialized")
+            try await sendNotification(method: "initialized")
             initialized = true
+            await log(.info, "codex", "Codex app-server initialized successfully.")
         } catch {
             resetServerState(error: error, terminateProcess: true)
             throw error
@@ -209,6 +219,7 @@ actor CodexAppServerClient {
               let thread = object["thread"] as? [String: Any],
               let threadID = thread["id"] as? String,
               !threadID.isEmpty else {
+            await log(.error, "codex.rpc", "Invalid response for thread/start.")
             throw TranslationServiceError.commandFailed("Codex app-server returned an invalid thread/start response.")
         }
 
@@ -234,6 +245,7 @@ actor CodexAppServerClient {
               let turn = object["turn"] as? [String: Any],
               let turnID = turn["id"] as? String,
               !turnID.isEmpty else {
+            await log(.error, "codex.rpc", "Invalid response for turn/start on thread \(threadID).")
             throw TranslationServiceError.commandFailed("Codex app-server returned an invalid turn/start response.")
         }
 
@@ -243,6 +255,7 @@ actor CodexAppServerClient {
     private func sendRequest(method: String, params: Any) async throws -> Any {
         let requestID = RequestID.int(nextRequestID)
         nextRequestID += 1
+        await log(.debug, "codex.rpc", "-> \(method) id=\(requestID.jsonValue)")
 
         return try await withCheckedThrowingContinuation { continuation in
             pendingRequests[requestID] = PendingRequest(method: method, continuation: continuation)
@@ -260,11 +273,12 @@ actor CodexAppServerClient {
         }
     }
 
-    private func sendNotification(method: String, params: Any? = nil) throws {
+    private func sendNotification(method: String, params: Any? = nil) async throws {
         var object: [String: Any] = ["method": method]
         if let params {
             object["params"] = params
         }
+        await log(.debug, "codex.rpc", "-> notification \(method)")
         try writeLine(object)
     }
 
@@ -286,6 +300,7 @@ actor CodexAppServerClient {
             return
         }
 
+        await log(.debug, "codex.stdout", "\(data.count) bytes: \(DebugLogFormatter.preview(String(decoding: data, as: UTF8.self)))")
         stdoutBuffer += String(decoding: data, as: UTF8.self)
 
         while let newlineRange = stdoutBuffer.range(of: "\n") {
@@ -295,11 +310,12 @@ actor CodexAppServerClient {
         }
     }
 
-    private func handleStderr(_ data: Data, token: UUID) {
+    private func handleStderr(_ data: Data, token: UUID) async {
         guard token == activeToken else {
             return
         }
 
+        await log(.debug, "codex.stderr", "\(data.count) bytes: \(DebugLogFormatter.preview(String(decoding: data, as: UTF8.self)))")
         stderrBuffer.append(data)
     }
 
@@ -318,13 +334,14 @@ actor CodexAppServerClient {
         }
 
         if !trailingStderr.isEmpty {
-            handleStderr(trailingStderr, token: token)
+            await handleStderr(trailingStderr, token: token)
         }
 
         let stderrText = String(decoding: stderrBuffer, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let reason = stderrText.isEmpty
             ? "Codex app-server exited with code \(status)."
             : stderrText
+        await log(.error, "codex", "Codex app-server terminated. status=\(status) reason=\(DebugLogFormatter.preview(reason))")
 
         resetServerState(
             error: TranslationServiceError.commandFailed(reason),
@@ -344,12 +361,13 @@ actor CodexAppServerClient {
 
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            await log(.error, "codex.rpc", "Ignored non-JSON line from app-server: \(DebugLogFormatter.preview(line))")
             return
         }
 
         if let method = object["method"] as? String {
             if let rawID = object["id"], let requestID = RequestID(rawID) {
-                handleServerRequest(id: requestID, method: method)
+                await handleServerRequest(id: requestID, method: method)
                 return
             }
 
@@ -364,19 +382,26 @@ actor CodexAppServerClient {
         if let error = object["error"] as? [String: Any] {
             let message = (error["message"] as? String)
                 ?? "Codex app-server request failed."
-            pendingRequests.removeValue(forKey: requestID)?.continuation.resume(
-                throwing: TranslationServiceError.commandFailed(message)
-            )
+            if let request = pendingRequests.removeValue(forKey: requestID) {
+                await log(.error, "codex.rpc", "<- \(request.method) id=\(requestID.jsonValue) error=\(message)")
+                request.continuation.resume(
+                    throwing: TranslationServiceError.commandFailed(message)
+                )
+            }
             return
         }
 
         if let result = object["result"] {
-            pendingRequests.removeValue(forKey: requestID)?.continuation.resume(returning: result)
+            if let request = pendingRequests.removeValue(forKey: requestID) {
+                await log(.debug, "codex.rpc", "<- \(request.method) id=\(requestID.jsonValue) result received")
+                request.continuation.resume(returning: result)
+            }
         }
     }
 
-    private func handleServerRequest(id: RequestID, method: String) {
+    private func handleServerRequest(id: RequestID, method: String) async {
         let message = "Unsupported server request from Codex app-server: \(method)"
+        await log(.error, "codex.rpc", message)
         try? writeLine([
             "id": id.jsonValue,
             "error": [
@@ -398,6 +423,8 @@ actor CodexAppServerClient {
                   var turn = activeTurns[threadID] else {
                 return
             }
+
+            await log(.debug, "codex.turn", "Delta for thread \(threadID): \(DebugLogFormatter.preview(delta))")
 
             if turn.turnID == nil {
                 turn.turnID = params["turnId"] as? String
@@ -426,6 +453,8 @@ actor CodexAppServerClient {
                 return
             }
 
+            await log(.debug, "codex.turn", "Completed item for thread \(threadID) phase=\(phase ?? "unknown")")
+
             if phase == "final_answer" {
                 turn.hasExplicitFinalAnswer = true
                 turn.finalText = text
@@ -444,12 +473,15 @@ actor CodexAppServerClient {
 
             turn.lastError = message
             activeTurns[threadID] = turn
+            await log(.error, "codex.turn", "Thread \(threadID) reported error: \(message)")
 
         case "turn/completed":
             guard let turnPayload = params["turn"] as? [String: Any],
                   let status = turnPayload["status"] as? String else {
                 return
             }
+
+            await log(.info, "codex.turn", "Thread \(threadID) completed with status \(status)")
 
             await completeTurn(
                 threadID: threadID,
@@ -477,10 +509,12 @@ actor CodexAppServerClient {
             let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !trimmed.isEmpty else {
+                await log(.error, "codex.turn", "Thread \(threadID) completed without translated text.")
                 turn.continuation.resume(throwing: TranslationServiceError.emptyResponse)
                 return
             }
 
+            await log(.info, "codex.turn", "Thread \(threadID) succeeded. streamed=\(turn.preferStreaming && turn.usedStreaming) output=\(trimmed.count) chars")
             turn.continuation.resume(
                 returning: TranslationRunOutput(
                     finalText: trimmed,
@@ -501,13 +535,16 @@ actor CodexAppServerClient {
                 message = "Codex app-server turn failed."
             }
 
+            await log(.error, "codex.turn", "Thread \(threadID) failed: \(message)")
             turn.continuation.resume(throwing: TranslationServiceError.commandFailed(message))
 
         case "interrupted":
             let message = turn.lastError ?? "Codex app-server turn was interrupted."
+            await log(.error, "codex.turn", "Thread \(threadID) interrupted: \(message)")
             turn.continuation.resume(throwing: TranslationServiceError.commandFailed(message))
 
         default:
+            await log(.error, "codex.turn", "Thread \(threadID) ended with unexpected status: \(status)")
             turn.continuation.resume(
                 throwing: TranslationServiceError.commandFailed("Codex app-server ended with unexpected turn status: \(status)")
             )
@@ -528,6 +565,9 @@ actor CodexAppServerClient {
             return
         }
 
+        Task {
+            await self.log(.error, "codex.turn", "Failed to start turn for thread \(threadID): \(error.localizedDescription)")
+        }
         turn.continuation.resume(throwing: error)
     }
 
@@ -563,6 +603,10 @@ actor CodexAppServerClient {
         initialized = false
         stdoutBuffer.removeAll(keepingCapacity: false)
         stderrBuffer.removeAll(keepingCapacity: false)
+    }
+
+    private func log(_ level: AppLogLevel, _ category: String, _ message: String) async {
+        await logHandler(level, category, message)
     }
 
     private func clientInfo() -> [String: Any] {

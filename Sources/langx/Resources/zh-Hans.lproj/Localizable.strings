@@ -1,11 +1,13 @@
 "app.subtitle" = "精译工作台";
 "section.translate" = "翻译";
 "section.history" = "记录";
+"section.logs" = "日志";
 "section.settings" = "设置";
 "sidebar.footer" = "面向 CLI 的翻译工作区";
 "translate.title" = "用 CLI 原生大模型完成翻译";
 "translate.subtitle" = "自动识别源语言，在支持的 CLI 上流式显示结果，并把每次翻译保存到本地记录中。";
 "translate.source" = "源文本";
+"translate.clear_source" = "清空";
 "translate.target" = "目标语言";
 "translate.cta" = "开始翻译";
 "translate.translating" = "翻译中";
@@ -34,6 +36,11 @@
 "history.empty" = "选择一条记录查看完整详情。";
 "history.today" = "今天";
 "history.yesterday" = "昨天";
+"logs.title" = "运行日志";
+"logs.subtitle" = "查看 CLI 调用链路、进程输出和翻译生命周期事件。";
+"logs.clear" = "清空日志";
+"logs.copy" = "复制日志";
+"logs.empty" = "当前还没有日志，先执行一次翻译即可看到 CLI 调试输出。";
 "settings.title" = "偏好设置";
 "settings.subtitle" = "配置引擎、默认语言和界面本地化。";
 "settings.general" = "通用";

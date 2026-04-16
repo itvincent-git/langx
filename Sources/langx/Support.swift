@@ -6,6 +6,7 @@ import SwiftUI
 enum AppSection: String, CaseIterable, Identifiable {
     case translate
     case history
+    case logs
     case settings
 
     var id: String { rawValue }
@@ -14,6 +15,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .translate: "translate"
         case .history: "clock.arrow.circlepath"
+        case .logs: "text.alignleft"
         case .settings: "slider.horizontal.3"
         }
     }

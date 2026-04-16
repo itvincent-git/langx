@@ -1,11 +1,13 @@
-"app.subtitle" = "Precision Curator Translator";
+"app.subtitle" = "Translation, Enhanced by AI";
 "section.translate" = "Translate";
 "section.history" = "History";
+"section.logs" = "Logs";
 "section.settings" = "Settings";
 "sidebar.footer" = "CLI-first translation workspace";
 "translate.title" = "Translate with CLI-native LLMs";
 "translate.subtitle" = "Detect the source language automatically, stream results when available, and keep every translation in a local archive.";
 "translate.source" = "Source text";
+"translate.clear_source" = "Clear";
 "translate.target" = "Target language";
 "translate.cta" = "Translate";
 "translate.translating" = "Translating";
@@ -34,6 +36,11 @@
 "history.empty" = "Select a record to view full details.";
 "history.today" = "Today";
 "history.yesterday" = "Yesterday";
+"logs.title" = "Runtime Logs";
+"logs.subtitle" = "Inspect CLI execution flow, process output, and translation lifecycle events.";
+"logs.clear" = "Clear Logs";
+"logs.copy" = "Copy Logs";
+"logs.empty" = "No logs yet. Start a translation to capture CLI debug output.";
 "settings.title" = "Preferences";
 "settings.subtitle" = "Configure engines, language defaults, and UI localization.";
 "settings.general" = "General";

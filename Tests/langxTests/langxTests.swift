@@ -25,3 +25,8 @@ import Testing
     #expect(csv.contains("\"hello, \"\"world\"\"\""))
     #expect(csv.contains("\"你好\n世界\""))
 }
+
+@Test func debugLogPreviewNormalizesAndTruncates() async throws {
+    #expect(DebugLogFormatter.preview("line1\nline2", limit: 20) == "line1\\nline2")
+    #expect(DebugLogFormatter.preview("abcdefghijklmnopqrstuvwxyz", limit: 8) == "abcdefgh...")
+}

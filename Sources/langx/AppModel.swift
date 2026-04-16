@@ -4,6 +4,8 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
+    private static let maxLogEntries = 500
+
     @Published var preferences = AppPreferences()
     @Published var activeSection: AppSection = .translate
     @Published var sourceText = ""
@@ -12,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published var history: [TranslationRecord] = []
     @Published var selectedHistoryID: UUID?
     @Published var searchText = ""
+    @Published var logs: [AppLogEntry] = []
     @Published var isTranslating = false
     @Published var errorMessage: String?
 
@@ -85,6 +88,8 @@ final class AppModel: ObservableObject {
             t("section.translate")
         case .history:
             t("section.history")
+        case .logs:
+            t("section.logs")
         case .settings:
             t("section.settings")
         }
@@ -93,6 +98,13 @@ final class AppModel: ObservableObject {
     func updateSourceText(_ text: String) {
         sourceText = text
         scheduleDetection()
+    }
+
+    func clearSourceText() {
+        detectionTask?.cancel()
+        sourceText = ""
+        detectedSourceLanguage = .automatic
+        errorMessage = nil
     }
 
     func scheduleDetection() {
@@ -193,6 +205,24 @@ final class AppModel: ObservableObject {
         persistPreferences()
     }
 
+    func clearLogs() {
+        logs.removeAll()
+    }
+
+    func copyLogs() {
+        let content = logs
+            .map(formattedLogLine)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !content.isEmpty else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(content, forType: .string)
+    }
+
     func copyTranslatedText() {
         guard !translatedText.isEmpty else {
             return
@@ -227,6 +257,17 @@ final class AppModel: ObservableObject {
         return formatter.string(from: date)
     }
 
+    func formattedLogTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: preferences.interfaceLanguage.localeIdentifier)
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter.string(from: date)
+    }
+
+    func formattedLogLine(_ entry: AppLogEntry) -> String {
+        "[\(formattedLogTimestamp(entry.timestamp))] [\(entry.level.rawValue)] [\(entry.category)] \(entry.message)"
+    }
+
     private func sectionTitle(for date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
@@ -245,12 +286,14 @@ final class AppModel: ObservableObject {
 
     private func runTranslation() async {
         guard !isTranslating else {
+            appendLog(level: .debug, category: "app", message: "Ignored translate request because another run is still active.")
             return
         }
 
         let input = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else {
             errorMessage = t("error.empty_input")
+            appendLog(level: .error, category: "app", message: "Translation aborted because the source text is empty.")
             return
         }
 
@@ -259,6 +302,11 @@ final class AppModel: ObservableObject {
         translatedText = ""
         let sourceLanguage = detector.detect(input)
         detectedSourceLanguage = sourceLanguage
+        appendLog(
+            level: .info,
+            category: "app",
+            message: "Starting translation with \(preferences.selectedEngine.displayName). source=\(sourceLanguage.code) target=\(preferences.defaultTargetLanguage.code) streaming=\(preferences.preferStreaming)"
+        )
 
         do {
             let output = try await translator.translate(
@@ -267,7 +315,12 @@ final class AppModel: ObservableObject {
                 targetLanguage: preferences.defaultTargetLanguage,
                 engine: preferences.selectedEngine,
                 executablePath: preferences.executablePath(for: preferences.selectedEngine),
-                preferStreaming: preferences.preferStreaming
+                preferStreaming: preferences.preferStreaming,
+                onLog: { [weak self] level, category, message in
+                    await MainActor.run {
+                        self?.appendLog(level: level, category: category, message: message)
+                    }
+                }
             ) { [weak self] delta in
                 await MainActor.run {
                     self?.translatedText += delta
@@ -275,6 +328,11 @@ final class AppModel: ObservableObject {
             }
 
             translatedText = output.finalText
+            appendLog(
+                level: .info,
+                category: "app",
+                message: "Translation completed successfully. streamed=\(output.usedStreaming) output=\(output.finalText.count) chars"
+            )
 
             let record = TranslationRecord(
                 sourceText: sourceText,
@@ -291,11 +349,28 @@ final class AppModel: ObservableObject {
             await storage.saveHistory(history)
         } catch let error as TranslationServiceError {
             errorMessage = error.localizedMessage(in: preferences.interfaceLanguage)
+            appendLog(
+                level: .error,
+                category: "app",
+                message: "Translation failed: \(error.localizedMessage(in: preferences.interfaceLanguage))"
+            )
         } catch {
             errorMessage = error.localizedDescription
+            appendLog(level: .error, category: "app", message: "Unexpected error: \(error.localizedDescription)")
         }
 
         isTranslating = false
+    }
+
+    private func appendLog(level: AppLogLevel, category: String, message: String) {
+        let entry = AppLogEntry(level: level, category: category, message: message)
+        logs.append(entry)
+
+        if logs.count > Self.maxLogEntries {
+            logs.removeFirst(logs.count - Self.maxLogEntries)
+        }
+
+        print("[langx][\(entry.level.rawValue)][\(entry.category)] \(entry.message)")
     }
 
     private func persistPreferences() {

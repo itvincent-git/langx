@@ -17,6 +17,8 @@ struct RootView: View {
                     TranslateView()
                 case .history:
                     HistoryView()
+                case .logs:
+                    LogsView()
                 case .settings:
                     SettingsView()
                 }
@@ -128,6 +130,12 @@ private struct TranslateView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Color.langxSubtext)
                         Spacer()
+                        Button(model.t("translate.clear_source")) {
+                            model.clearSourceText()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.langxSubtext)
+                        .disabled(model.sourceText.isEmpty || model.isTranslating)
                         Text("\(model.sourceText.count) / 5000")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.langxSubtext.opacity(0.75))
@@ -407,6 +415,114 @@ private struct HistoryView: View {
             .langxCardStyle()
         }
         .padding(32)
+    }
+}
+
+private struct LogsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(model.t("logs.title"))
+                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                        Text(model.t("logs.subtitle"))
+                            .foregroundStyle(Color.langxSubtext)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 12) {
+                        Button(model.t("logs.clear")) {
+                            model.clearLogs()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.langxSubtext)
+
+                        Button(model.t("logs.copy")) {
+                            model.copyLogs()
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(LinearGradient.langxPrimary)
+                        .clipShape(Capsule())
+                        .foregroundStyle(.white)
+                    }
+                }
+
+                if model.logs.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(model.t("logs.empty"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color.langxSubtext)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .topLeading)
+                    .langxCardStyle()
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(model.logs.reversed())) { entry in
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 10) {
+                                    Text(model.formattedLogTimestamp(entry.timestamp))
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(Color.langxSubtext)
+
+                                    Text(entry.level.rawValue)
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(logLevelBackground(for: entry.level))
+                                        .clipShape(Capsule())
+                                        .foregroundStyle(logLevelColor(for: entry.level))
+
+                                    Text(entry.category)
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(Color.langxPrimary)
+
+                                    Spacer()
+                                }
+
+                                Text(entry.message)
+                                    .font(.system(size: 13, design: .monospaced))
+                                    .foregroundStyle(Color.langxText)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(16)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                    }
+                    .langxCardStyle()
+                }
+            }
+            .padding(32)
+        }
+    }
+
+    private func logLevelColor(for level: AppLogLevel) -> Color {
+        switch level {
+        case .debug:
+            .langxSubtext
+        case .info:
+            .langxPrimary
+        case .error:
+            .red
+        }
+    }
+
+    private func logLevelBackground(for level: AppLogLevel) -> Color {
+        switch level {
+        case .debug:
+            Color.langxSurface
+        case .info:
+            Color.langxPrimary.opacity(0.12)
+        case .error:
+            Color.red.opacity(0.12)
+        }
     }
 }
 
