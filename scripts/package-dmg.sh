@@ -72,6 +72,9 @@ STAGING_DIR="$WORK_DIR/staging"
 DIST_APP_BUNDLE_PATH="$DIST_DIR/$APP_DISPLAY_NAME.app"
 APP_BUNDLE_PATH="$STAGING_DIR/$APP_DISPLAY_NAME.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${APP_VERSION}.dmg"
+ICON_GENERATOR_PATH="$WORK_DIR/generate-app-icon"
+ICON_WORK_DIR="$WORK_DIR/icon"
+ICON_FILE_PATH="$ICON_WORK_DIR/AppIcon.icns"
 
 if [[ ! -x "$EXECUTABLE_PATH" ]]; then
     echo "Missing executable at $EXECUTABLE_PATH" >&2
@@ -85,14 +88,23 @@ fi
 
 rm -rf "$WORK_DIR"
 rm -rf "$DIST_APP_BUNDLE_PATH"
-mkdir -p "$APP_BUNDLE_PATH/Contents/MacOS" "$DIST_DIR"
+mkdir -p "$APP_BUNDLE_PATH/Contents/MacOS" "$APP_BUNDLE_PATH/Contents/Resources" "$DIST_DIR"
 
 cp "$EXECUTABLE_PATH" "$APP_BUNDLE_PATH/Contents/MacOS/$APP_NAME"
 ditto "$RESOURCE_BUNDLE_PATH" "$APP_BUNDLE_PATH/${APP_NAME}_${APP_NAME}.bundle"
 
+log "Generating application icon"
+swiftc \
+    -o "$ICON_GENERATOR_PATH" \
+    "$REPO_ROOT/Sources/langx/AppIcon.swift" \
+    "$REPO_ROOT/scripts/generate-app-icon.swift"
+"$ICON_GENERATOR_PATH" "$ICON_WORK_DIR"
+cp "$ICON_FILE_PATH" "$APP_BUNDLE_PATH/Contents/Resources/AppIcon.icns"
+
 /usr/bin/plutil -create xml1 "$APP_BUNDLE_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleDevelopmentRegion string en" "$APP_BUNDLE_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $APP_NAME" "$APP_BUNDLE_PATH/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_BUNDLE_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_IDENTIFIER" "$APP_BUNDLE_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleInfoDictionaryVersion string 6.0" "$APP_BUNDLE_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_DISPLAY_NAME" "$APP_BUNDLE_PATH/Contents/Info.plist"
