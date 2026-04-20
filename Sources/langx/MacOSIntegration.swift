@@ -3,6 +3,11 @@ import Carbon
 import Combine
 import SwiftUI
 
+private enum FloatingTranslationPanelLayout {
+    static let defaultPanelSize = NSSize(width: 760, height: 700)
+    static let minimumPanelSize = NSSize(width: 680, height: 640)
+}
+
 @MainActor
 final class FloatingTranslationPanelController {
     private weak var model: AppModel?
@@ -32,7 +37,7 @@ final class FloatingTranslationPanelController {
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
+            contentRect: NSRect(origin: .zero, size: FloatingTranslationPanelLayout.defaultPanelSize),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -46,6 +51,7 @@ final class FloatingTranslationPanelController {
         panel.isMovableByWindowBackground = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
+        panel.contentMinSize = FloatingTranslationPanelLayout.minimumPanelSize
         panel.contentViewController = NSHostingController(
             rootView: FloatingTranslateView().environmentObject(model)
         )
@@ -231,7 +237,7 @@ struct FloatingTranslateView: View {
                 .focused($isSourceFocused)
                 .font(.system(size: 16))
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 150)
+                .frame(minHeight: 120)
                 .padding(6)
                 .background(Color.clear)
             }
@@ -308,7 +314,13 @@ struct FloatingTranslateView: View {
             .langxCardStyle()
         }
         .padding(20)
-        .frame(minWidth: 560, minHeight: 520, alignment: .topLeading)
+        .frame(
+            minWidth: FloatingTranslationPanelLayout.minimumPanelSize.width,
+            idealWidth: FloatingTranslationPanelLayout.defaultPanelSize.width,
+            minHeight: FloatingTranslationPanelLayout.minimumPanelSize.height,
+            idealHeight: FloatingTranslationPanelLayout.defaultPanelSize.height,
+            alignment: .topLeading
+        )
         .background(Color.langxBackground)
         .onAppear {
             focusSourceEditor()
