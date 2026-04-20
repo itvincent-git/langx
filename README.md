@@ -23,6 +23,14 @@ swift run
 swift test
 ```
 
+## Package DMG
+
+```bash
+./scripts/package-dmg.sh
+```
+
+The script builds a release binary, assembles `dist/langx.app`, and writes the installer image to `dist/langx-0.1.0.dmg`.
+
 ## Notes
 
 - The app resolves `codex`, `gemini`, and `claude` from the current `PATH` and several common install paths.

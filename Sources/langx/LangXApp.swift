@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = AppIconRenderer.makeApplicationIcon()
 
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
@@ -105,5 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             window.makeMain()
         }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }
