@@ -85,6 +85,87 @@ private struct MockSelectedTextProvider: SelectedTextProvider {
     #expect(DebugLogFormatter.preview("abcdefghijklmnopqrstuvwxyz", limit: 8) == "abcdefgh...")
 }
 
+@Test func processExecutionEnvironmentPrependsExecutableAndDeduplicatesPaths() async throws {
+    let components = ProcessExecutionEnvironment.mergedPathComponents(
+        basePath: "/usr/bin:/bin:/usr/local/bin",
+        executablePath: "/opt/homebrew/bin/codex",
+        additionalDirectories: [
+            "/Users/test/.nvm/versions/node/v24.11.0/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+        ]
+    )
+
+    #expect(components == [
+        "/opt/homebrew/bin",
+        "/Users/test/.nvm/versions/node/v24.11.0/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+    ])
+}
+
+@Test func processExecutionEnvironmentImportsWhitelistedShellVariables() async throws {
+    let merged = ProcessExecutionEnvironment.mergedBaseEnvironment(
+        ["USER": "vincent"],
+        shellEnvironment: [
+            "HTTP_PROXY": "http://127.0.0.1:7897",
+            "HTTPS_PROXY": "http://127.0.0.1:7897",
+            "ALL_PROXY": "socks5://127.0.0.1:7897",
+            "OPENAI_API_KEY": "token",
+            "PATH": "/custom/bin:/usr/bin",
+            "FOO": "bar",
+        ]
+    )
+
+    #expect(merged["USER"] == "vincent")
+    #expect(merged["HTTP_PROXY"] == "http://127.0.0.1:7897")
+    #expect(merged["HTTPS_PROXY"] == "http://127.0.0.1:7897")
+    #expect(merged["ALL_PROXY"] == "socks5://127.0.0.1:7897")
+    #expect(merged["OPENAI_API_KEY"] == "token")
+    #expect(merged["PATH"] == "/custom/bin:/usr/bin")
+    #expect(merged["FOO"] == nil)
+}
+
+@Test func processExecutionEnvironmentPreservesExistingVariablesOverShellValues() async throws {
+    let merged = ProcessExecutionEnvironment.mergedBaseEnvironment(
+        [
+            "HTTP_PROXY": "http://existing:7890",
+            "PATH": "/existing/bin:/usr/bin",
+        ],
+        shellEnvironment: [
+            "HTTP_PROXY": "http://shell:7897",
+            "PATH": "/shell/bin:/usr/bin",
+        ]
+    )
+
+    #expect(merged["HTTP_PROXY"] == "http://existing:7890")
+    #expect(merged["PATH"] == "/existing/bin:/usr/bin")
+}
+
+@Test func userShellEnvironmentParsesNullSeparatedOutput() async throws {
+    let data = Data("HTTP_PROXY=http://127.0.0.1:7897\0PATH=/usr/bin:/bin\0INVALID\0".utf8)
+    let parsed = UserShellEnvironment.parseEnvironmentOutput(data)
+
+    #expect(parsed["HTTP_PROXY"] == "http://127.0.0.1:7897")
+    #expect(parsed["PATH"] == "/usr/bin:/bin")
+    #expect(parsed["INVALID"] == nil)
+}
+
+@Test func codexAppServerStreamDisconnectTriggersFallback() async throws {
+    let service = CLITranslationService()
+
+    #expect(service.shouldFallbackFromCodexAppServer(
+        TranslationServiceError.commandFailed("Reconnecting... 2/5")
+    ))
+    #expect(service.shouldFallbackFromCodexAppServer(
+        TranslationServiceError.commandFailed("timeout waiting for model response stream")
+    ))
+    #expect(!service.shouldFallbackFromCodexAppServer(
+        TranslationServiceError.emptyResponse
+    ))
+}
+
 @Test func appPreferencesDecodeLegacyPayloadWithSelectionShortcutDefault() async throws {
     let data = """
     {

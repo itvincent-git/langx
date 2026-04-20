@@ -62,14 +62,7 @@ final class CLITranslationService: TranslationServing, @unchecked Sendable {
     }
 
     func findExecutable(for engine: TranslationEngine) -> String? {
-        let pathComponents = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
-
-        let dynamicPaths = pathComponents.map { "\($0)/\(engine.executableName)" }
-        let candidates = engine.candidatePaths + dynamicPaths
-
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate) {
+        for candidate in engine.candidatePaths where fileManager.isExecutableFile(atPath: candidate) {
             return candidate
         }
 
@@ -172,14 +165,111 @@ final class CLITranslationService: TranslationServing, @unchecked Sendable {
         onChunk: @escaping @Sendable (String) async -> Void
     ) async throws -> TranslationRunOutput {
         await onLog(.info, "codex", "Launching Codex app-server via \(executable)")
-        return try await codexClient.translate(
-            executablePath: executable,
-            workingDirectory: fileManager.homeDirectoryForCurrentUser.path,
-            prompt: prompt,
-            preferStreaming: preferStreaming,
-            onLog: onLog,
-            onChunk: onChunk
+
+        do {
+            return try await codexClient.translate(
+                executablePath: executable,
+                workingDirectory: fileManager.homeDirectoryForCurrentUser.path,
+                prompt: prompt,
+                preferStreaming: preferStreaming,
+                onLog: onLog,
+                onChunk: onChunk
+            )
+        } catch {
+            guard shouldFallbackFromCodexAppServer(error) else {
+                throw error
+            }
+
+            await onLog(
+                .info,
+                "codex",
+                "Codex app-server response stream became unavailable; falling back to codex exec."
+            )
+            await codexClient.shutdown()
+
+            return try await runCodexExec(
+                executable: executable,
+                prompt: prompt,
+                onLog: onLog
+            )
+        }
+    }
+
+    private func runCodexExec(
+        executable: String,
+        prompt: String,
+        onLog: @escaping AppLogHandler
+    ) async throws -> TranslationRunOutput {
+        let outputURL = fileManager.temporaryDirectory
+            .appendingPathComponent("langx-codex-\(UUID().uuidString).txt")
+
+        defer {
+            try? fileManager.removeItem(at: outputURL)
+        }
+
+        let arguments = [
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox", "read-only",
+            "--model", CodexTranslationDefaults.model,
+            "--output-last-message", outputURL.path,
+            "-",
+        ]
+
+        await onLog(
+            .info,
+            "process",
+            "Launching Codex exec fallback: \(DebugLogFormatter.command(executablePath: executable, arguments: arguments))"
         )
+
+        let result = try await runner.run(
+            executablePath: executable,
+            arguments: arguments,
+            stdin: prompt,
+            workingDirectory: fileManager.homeDirectoryForCurrentUser.path,
+            onLog: onLog
+        ) { _ in
+        }
+
+        guard result.exitCode == 0 else {
+            await onLog(
+                .error,
+                "process",
+                "Codex exec fallback exited with code \(result.exitCode): \(DebugLogFormatter.preview(result.stderr.isEmpty ? result.stdout : result.stderr))"
+            )
+            throw TranslationServiceError.commandFailed(result.stderr.isEmpty ? result.stdout : result.stderr)
+        }
+
+        let fileText = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
+        let finalText = bestEffortFinalText(from: fileText.isEmpty ? result.stdout : fileText)
+
+        guard !finalText.isEmpty else {
+            await onLog(.error, "translator", "Codex exec fallback completed without returning translated text.")
+            throw TranslationServiceError.emptyResponse
+        }
+
+        await onLog(.info, "translator", "Codex exec fallback completed. output=\(finalText.count) chars")
+        return TranslationRunOutput(finalText: finalText, usedStreaming: false)
+    }
+
+    func shouldFallbackFromCodexAppServer(_ error: Error) -> Bool {
+        guard let error = error as? TranslationServiceError else {
+            return false
+        }
+
+        let reason: String
+        switch error {
+        case .commandFailed(let value), .processLaunchFailed(let value):
+            reason = value
+        case .emptyResponse, .executableNotFound:
+            return false
+        }
+
+        let normalized = reason.lowercased()
+        return normalized.contains("reconnecting")
+            || normalized.contains("responsestreamdisconnected")
+            || normalized.contains("timeout waiting for model response stream")
+            || normalized.contains("stream disconnected")
     }
 
     private func runGemini(
@@ -358,6 +448,7 @@ private final class ProcessRunner: @unchecked Sendable {
         executablePath: String,
         arguments: [String],
         stdin: String? = nil,
+        workingDirectory: String? = nil,
         onLog: @escaping AppLogHandler = AppLogger.noop,
         onStdout: @escaping @Sendable (String) async -> Void
     ) async throws -> ProcessRunResult {
@@ -441,7 +532,10 @@ private final class ProcessRunner: @unchecked Sendable {
             do {
                 process.executableURL = URL(fileURLWithPath: executablePath)
                 process.arguments = arguments
-                process.environment = ProcessInfo.processInfo.environment
+                process.environment = ProcessExecutionEnvironment.makeEnvironment(for: executablePath)
+                if let workingDirectory {
+                    process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                }
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 

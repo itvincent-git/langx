@@ -64,21 +64,267 @@ enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Sendable {
     }
 
     var candidatePaths: [String] {
-        switch self {
-        case .codex, .gemini:
-            [
-                "/Users/\(NSUserName())/.nvm/versions/node/v24.11.0/bin/\(executableName)",
-                "/opt/homebrew/bin/\(executableName)",
-                "/usr/local/bin/\(executableName)",
-                "/usr/bin/\(executableName)",
-            ]
-        case .claude:
-            [
-                "/usr/local/bin/claude",
-                "/opt/homebrew/bin/claude",
-                "/usr/bin/claude",
-            ]
+        ProcessExecutionEnvironment
+            .candidateBinDirectories()
+            .map { "\($0)/\(executableName)" }
+    }
+}
+
+enum ProcessExecutionEnvironment {
+    static func candidateBinDirectories(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        let effectiveEnvironment = mergedBaseEnvironment(baseEnvironment)
+
+        return uniquePathComponents(
+            splitPath(effectiveEnvironment["PATH"] ?? "")
+                + nvmBinDirectories(fileManager: fileManager)
+                + userBinDirectories()
+                + standardBinDirectories()
+        )
+    }
+
+    static func makeEnvironment(
+        for executablePath: String,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [String: String] {
+        var environment = mergedBaseEnvironment(baseEnvironment)
+        let executableURL = URL(fileURLWithPath: executablePath)
+        let resolvedExecutableDirectory = executableURL
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
+            .path
+
+        environment["PATH"] = mergedPathComponents(
+            basePath: environment["PATH"] ?? "",
+            executablePath: executablePath,
+            additionalDirectories: [resolvedExecutableDirectory]
+                + nvmBinDirectories(fileManager: fileManager)
+                + userBinDirectories()
+                + standardBinDirectories()
+        )
+        .joined(separator: ":")
+        environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+        environment["USER"] = environment["USER"] ?? NSUserName()
+        return environment
+    }
+
+    static func mergedBaseEnvironment(
+        _ baseEnvironment: [String: String],
+        shellEnvironment: [String: String] = UserShellEnvironment.snapshot()
+    ) -> [String: String] {
+        var environment = baseEnvironment
+
+        for (key, value) in shellEnvironment
+        where shouldImportFromShellEnvironment(key: key) && environment[key] == nil {
+            environment[key] = value
         }
+
+        return environment
+    }
+
+    static func mergedPathComponents(
+        basePath: String,
+        executablePath: String,
+        additionalDirectories: [String]
+    ) -> [String] {
+        let executableDirectory = URL(fileURLWithPath: executablePath)
+            .deletingLastPathComponent()
+            .path
+
+        return uniquePathComponents(
+            [executableDirectory]
+                + additionalDirectories
+                + splitPath(basePath)
+        )
+    }
+
+    private static func splitPath(_ path: String) -> [String] {
+        path
+            .split(separator: ":")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
+
+    private static func uniquePathComponents(_ components: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for component in components where seen.insert(component).inserted {
+            result.append(component)
+        }
+
+        return result
+    }
+
+    private static func shouldImportFromShellEnvironment(key: String) -> Bool {
+        let normalized = key.uppercased()
+
+        return normalized == "PATH"
+            || normalized == "HOME"
+            || normalized == "USER"
+            || normalized == "SHELL"
+            || normalized == "LANG"
+            || normalized.hasPrefix("LC_")
+            || normalized.hasSuffix("_PROXY")
+            || normalized == "NO_PROXY"
+            || normalized.hasPrefix("OPENAI_")
+            || normalized.hasPrefix("ANTHROPIC_")
+            || normalized.hasPrefix("GOOGLE_")
+            || normalized.hasPrefix("GEMINI_")
+            || normalized.hasPrefix("CLAUDE_")
+            || normalized.hasPrefix("NVM_")
+            || normalized == "PNPM_HOME"
+            || normalized == "NODE_EXTRA_CA_CERTS"
+            || normalized == "SSL_CERT_FILE"
+            || normalized == "SSL_CERT_DIR"
+            || normalized == "CURL_CA_BUNDLE"
+    }
+
+    private static func userBinDirectories() -> [String] {
+        [
+            "\(NSHomeDirectory())/Library/pnpm",
+            "\(NSHomeDirectory())/.local/bin",
+        ]
+    }
+
+    private static func standardBinDirectories() -> [String] {
+        [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
+    }
+
+    private static func nvmBinDirectories(fileManager: FileManager) -> [String] {
+        let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".nvm/versions/node", isDirectory: true)
+
+        guard let directories = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return directories
+            .sorted(by: { $0.lastPathComponent > $1.lastPathComponent })
+            .map { $0.appendingPathComponent("bin", isDirectory: true) }
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .map(\.path)
+    }
+}
+
+enum UserShellEnvironment {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var cachedSnapshot: [String: String]?
+
+    static func snapshot() -> [String: String] {
+        lock.lock()
+        if let cachedSnapshot {
+            lock.unlock()
+            return cachedSnapshot
+        }
+        lock.unlock()
+
+        let loaded = loadSnapshot()
+
+        lock.lock()
+        cachedSnapshot = loaded
+        lock.unlock()
+
+        return loaded
+    }
+
+    static func parseEnvironmentOutput(_ data: Data) -> [String: String] {
+        String(decoding: data, as: UTF8.self)
+            .split(separator: "\0")
+            .reduce(into: [String: String]()) { result, entry in
+                let parts = entry.split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
+
+                guard parts.count == 2 else {
+                    return
+                }
+
+                result[String(parts[0])] = String(parts[1])
+            }
+    }
+
+    private static func loadSnapshot() -> [String: String] {
+        let shellPath = preferredShellPath()
+        guard FileManager.default.isExecutableFile(atPath: shellPath) else {
+            return [:]
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = shellArguments(for: shellPath)
+        process.environment = bootstrapEnvironment()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return [:]
+        }
+
+        let output = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            return [:]
+        }
+
+        return parseEnvironmentOutput(output)
+    }
+
+    private static func preferredShellPath() -> String {
+        let environmentShell = ProcessInfo.processInfo.environment["SHELL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let environmentShell,
+           !environmentShell.isEmpty,
+           FileManager.default.isExecutableFile(atPath: environmentShell) {
+            return environmentShell
+        }
+
+        return "/bin/zsh"
+    }
+
+    private static func shellArguments(for shellPath: String) -> [String] {
+        let shellName = URL(fileURLWithPath: shellPath)
+            .lastPathComponent
+            .lowercased()
+
+        if shellName == "fish" {
+            return ["-ilc", "command env -0"]
+        }
+
+        return ["-lic", "command env -0"]
+    }
+
+    private static func bootstrapEnvironment() -> [String: String] {
+        [
+            "HOME": NSHomeDirectory(),
+            "USER": NSUserName(),
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "TERM": "dumb",
+        ]
     }
 }
 

@@ -123,7 +123,7 @@ actor CodexAppServerClient {
 
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = ["app-server"]
-        process.environment = ProcessInfo.processInfo.environment
+        process.environment = ProcessExecutionEnvironment.makeEnvironment(for: executablePath)
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -479,6 +479,14 @@ actor CodexAppServerClient {
             activeTurns[threadID] = turn
             await log(.error, "codex.turn", "Thread \(threadID) reported error: \(message)")
 
+            if shouldAbortTurn(for: error) {
+                await log(.error, "codex.turn", "Thread \(threadID) lost its response stream; aborting app-server turn for fallback.")
+                abortTurn(
+                    threadID: threadID,
+                    error: TranslationServiceError.commandFailed(message)
+                )
+            }
+
         case "turn/completed":
             guard let turnPayload = params["turn"] as? [String: Any],
                   let status = turnPayload["status"] as? String else {
@@ -573,6 +581,28 @@ actor CodexAppServerClient {
             await self.log(.error, "codex.turn", "Failed to start turn for thread \(threadID): \(error.localizedDescription)")
         }
         turn.continuation.resume(throwing: error)
+    }
+
+    private func abortTurn(threadID: String, error: Error) {
+        guard let turn = activeTurns.removeValue(forKey: threadID) else {
+            return
+        }
+
+        turn.continuation.resume(throwing: error)
+    }
+
+    private func shouldAbortTurn(for error: [String: Any]) -> Bool {
+        if let info = error["codexErrorInfo"] as? [String: Any],
+           info["responseStreamDisconnected"] != nil {
+            return true
+        }
+
+        if let details = error["additionalDetails"] as? String,
+           details.localizedCaseInsensitiveContains("timeout waiting for model response stream") {
+            return true
+        }
+
+        return false
     }
 
     private func resetServerState(error: Error?, terminateProcess: Bool) {
