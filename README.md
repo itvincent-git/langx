@@ -31,6 +31,30 @@ swift test
 
 The script builds a release binary, assembles `dist/langx.app`, and writes the installer image to `dist/langx-0.1.0.dmg`.
 
+To keep Accessibility permission stable across installs, sign the app bundle with the same identity each time:
+
+```bash
+security find-identity -v -p codesigning
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/package-dmg.sh
+```
+
+Optional distribution steps:
+
+```bash
+# Sign the app and DMG, then notarize and staple the DMG.
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARIZE=1 \
+NOTARY_PROFILE="langx-notary" \
+./scripts/package-dmg.sh
+```
+
+Notes:
+
+- `CODESIGN_DMG_IDENTITY` lets you override the identity used for the `.dmg`. It defaults to `CODESIGN_IDENTITY`.
+- `CODESIGN_TIMESTAMP=1` enables Apple timestamping during signing.
+- `ENABLE_HARDENED_RUNTIME=1` is enabled by default and is required for notarization.
+- `NOTARY_PROFILE` should match a keychain profile created with `xcrun notarytool store-credentials`.
+
 ## Notes
 
 - The app resolves `codex`, `gemini`, and `claude` from the current `PATH` and several common install paths.
