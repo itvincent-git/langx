@@ -56,6 +56,11 @@ final class FloatingTranslationPanelController {
     }
 }
 
+enum GlobalHotKeyAction: UInt32, Sendable {
+    case openFloatingPanel = 1
+    case translateSelection = 2
+}
+
 final class GlobalHotKeyManager {
     private static let signature = OSType(0x4C4E4758) // LNGX
     private static let eventHandler: EventHandlerUPP = { _, event, userData in
@@ -67,7 +72,7 @@ final class GlobalHotKeyManager {
         return manager.handleHotKeyEvent(event)
     }
 
-    private var hotKeyRef: EventHotKeyRef?
+    private var hotKeyRefs: [GlobalHotKeyAction: EventHotKeyRef] = [:]
     private var eventHandlerRef: EventHandlerRef?
 
     init() {
@@ -75,20 +80,23 @@ final class GlobalHotKeyManager {
     }
 
     deinit {
-        unregister()
+        for action in hotKeyRefs.keys {
+            unregister(action: action)
+        }
 
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
         }
     }
 
-    func updateRegistration(for preset: GlobalShortcutPreset) {
-        unregister()
+    func updateRegistration(for action: GlobalHotKeyAction, preset: GlobalShortcutPreset) {
+        unregister(action: action)
         guard let registration = HotKeyRegistration(preset: preset) else {
             return
         }
 
-        let hotKeyID = EventHotKeyID(signature: Self.signature, id: 1)
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: action.rawValue)
+        var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             registration.keyCode,
             registration.modifiers,
@@ -99,8 +107,12 @@ final class GlobalHotKeyManager {
         )
 
         if status != noErr {
-            NSLog("langx failed to register global hotkey, status=%d", status)
-            hotKeyRef = nil
+            NSLog("langx failed to register global hotkey for action=%u, status=%d", action.rawValue, status)
+            return
+        }
+
+        if let hotKeyRef {
+            hotKeyRefs[action] = hotKeyRef
         }
     }
 
@@ -139,20 +151,22 @@ final class GlobalHotKeyManager {
             &hotKeyID
         )
 
-        guard status == noErr, hotKeyID.signature == Self.signature else {
+        guard status == noErr,
+              hotKeyID.signature == Self.signature,
+              let action = GlobalHotKeyAction(rawValue: hotKeyID.id) else {
             return OSStatus(eventNotHandledErr)
         }
 
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .langxGlobalHotKeyPressed, object: nil)
+            NotificationCenter.default.post(name: .langxGlobalHotKeyPressed, object: action)
         }
         return noErr
     }
 
-    private func unregister() {
-        if let hotKeyRef {
+    private func unregister(action: GlobalHotKeyAction) {
+        if let hotKeyRef = hotKeyRefs[action] {
             UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+            hotKeyRefs[action] = nil
         }
     }
 }

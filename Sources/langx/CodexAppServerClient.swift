@@ -289,9 +289,13 @@ actor CodexAppServerClient {
 
         let data = try JSONSerialization.data(withJSONObject: object)
 
-        encoderQueue.sync {
-            handle.write(data)
-            handle.write(Data([0x0A]))
+        do {
+            try encoderQueue.sync {
+                try handle.write(contentsOf: data)
+                try handle.write(contentsOf: Data([0x0A]))
+            }
+        } catch {
+            throw TranslationServiceError.processLaunchFailed("Failed to write to Codex app-server stdin: \(error.localizedDescription)")
         }
     }
 

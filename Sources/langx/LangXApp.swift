@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import SwiftUI
 
 @main
@@ -67,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesCancellable: AnyCancellable?
     private var hotKeyEventCancellable: AnyCancellable?
     private let hotKeyManager = GlobalHotKeyManager()
+    private let selectedTextCaptureService = SelectedTextCaptureService()
     private var floatingPanelController: FloatingTranslationPanelController?
 
     func configure(with model: AppModel) {
@@ -77,14 +79,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         floatingPanelController = FloatingTranslationPanelController(model: model)
         preferencesCancellable = model.$preferences
-            .map(\.globalShortcutPreset)
+            .map {
+                HotKeyConfiguration(
+                    openFloatingPanel: $0.globalShortcutPreset,
+                    translateSelection: $0.selectionTranslationShortcutPreset
+                )
+            }
             .removeDuplicates()
-            .sink { [weak self] preset in
-                self?.hotKeyManager.updateRegistration(for: preset)
+            .sink { [weak self] configuration in
+                self?.hotKeyManager.updateRegistration(for: .openFloatingPanel, preset: configuration.openFloatingPanel)
+                self?.hotKeyManager.updateRegistration(for: .translateSelection, preset: configuration.translateSelection)
             }
         hotKeyEventCancellable = NotificationCenter.default.publisher(for: .langxGlobalHotKeyPressed)
-            .sink { [weak self] _ in
-                self?.presentFloatingTranslationPanel()
+            .compactMap { $0.object as? GlobalHotKeyAction }
+            .sink { [weak self] action in
+                switch action {
+                case .openFloatingPanel:
+                    self?.presentFloatingTranslationPanel()
+                case .translateSelection:
+                    self?.translateSelection()
+                }
             }
     }
 
@@ -92,23 +106,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         floatingPanelController?.present()
     }
 
+    private func translateSelection() {
+        guard let model else {
+            return
+        }
+
+        let captureService = selectedTextCaptureService
+        Task {
+            do {
+                let selectedText = try await captureService.captureSelectedText()
+                await MainActor.run {
+                    self.presentFloatingTranslationPanel()
+                    model.prepareTranslation(sourceText: selectedText, autoTranslate: true)
+                }
+            } catch let error as SelectedTextCaptureError {
+                await MainActor.run {
+                    self.presentFloatingTranslationPanel()
+                    model.presentSelectionCaptureError(error)
+                }
+            } catch {
+                await MainActor.run {
+                    self.presentFloatingTranslationPanel()
+                    model.presentSelectionCaptureError(.unexpected(error.localizedDescription))
+                }
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Child CLI processes may close stdin immediately; ignore SIGPIPE so writes fail with EPIPE instead of killing the app.
+        signal(SIGPIPE, SIG_IGN)
+
         NSApp.setActivationPolicy(.regular)
         NSApp.applicationIconImage = AppIconRenderer.makeApplicationIcon()
 
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
 
-            guard let window = NSApp.windows.first else {
+            guard let window = NSApp.windows.first(where: { !($0 is NSPanel) }) else {
                 return
             }
 
             window.makeKeyAndOrderFront(nil)
-            window.makeMain()
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+}
+
+private struct HotKeyConfiguration: Equatable {
+    let openFloatingPanel: GlobalShortcutPreset
+    let translateSelection: GlobalShortcutPreset
 }

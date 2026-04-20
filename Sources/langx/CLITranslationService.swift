@@ -1,5 +1,19 @@
 import Foundation
 
+protocol TranslationServing: Sendable {
+    func findExecutable(for engine: TranslationEngine) -> String?
+    func translate(
+        sourceText: String,
+        sourceLanguage: TranslationLanguage,
+        targetLanguage: TranslationLanguage,
+        engine: TranslationEngine,
+        executablePath: String,
+        preferStreaming: Bool,
+        onLog: @escaping AppLogHandler,
+        onChunk: @escaping @Sendable (String) async -> Void
+    ) async throws -> TranslationRunOutput
+}
+
 enum TranslationServiceError: LocalizedError {
     case executableNotFound(String)
     case processLaunchFailed(String)
@@ -35,7 +49,7 @@ enum TranslationServiceError: LocalizedError {
     }
 }
 
-final class CLITranslationService: @unchecked Sendable {
+final class CLITranslationService: TranslationServing, @unchecked Sendable {
     private let fileManager = FileManager.default
     private let runner = ProcessRunner()
     private let codexClient = CodexAppServerClient()
@@ -445,10 +459,17 @@ private final class ProcessRunner: @unchecked Sendable {
                 }
 
                 if let stdin {
-                    stdinPipe.fileHandleForWriting.write(Data(stdin.utf8))
-                    try? stdinPipe.fileHandleForWriting.close()
-                    Task {
-                        await onLog(.debug, "stdin", "Wrote \(stdin.count) chars to process stdin.")
+                    do {
+                        try stdinPipe.fileHandleForWriting.write(contentsOf: Data(stdin.utf8))
+                        try stdinPipe.fileHandleForWriting.close()
+                        Task {
+                            await onLog(.debug, "stdin", "Wrote \(stdin.count) chars to process stdin.")
+                        }
+                    } catch {
+                        Task {
+                            await onLog(.error, "stdin", "Failed to write process stdin: \(error.localizedDescription)")
+                        }
+                        finish(.failure(TranslationServiceError.processLaunchFailed("Failed to write process stdin: \(error.localizedDescription)")))
                     }
                 }
             } catch {

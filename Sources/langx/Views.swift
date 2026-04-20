@@ -564,10 +564,10 @@ private struct SettingsView: View {
                     SettingsSectionTitle(icon: "keyboard", title: model.t("settings.quick_access"))
 
                     VStack(alignment: .leading, spacing: 14) {
-                        Text(model.t("settings.shortcut"))
+                        Text(model.t("settings.open_panel_shortcut"))
                             .font(.system(size: 14, weight: .semibold))
 
-                        Text(model.t("settings.shortcut_hint"))
+                        Text(model.t("settings.open_panel_shortcut_hint"))
                             .font(.system(size: 12))
                             .foregroundStyle(Color.langxSubtext)
 
@@ -578,6 +578,27 @@ private struct SettingsView: View {
                                     isSelected: model.preferences.globalShortcutPreset == preset
                                 ) {
                                     model.selectGlobalShortcutPreset(preset)
+                                }
+                            }
+                        }
+                    }
+                    .langxCardStyle()
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(model.t("settings.selection_shortcut"))
+                            .font(.system(size: 14, weight: .semibold))
+
+                        Text(model.t("settings.selection_shortcut_hint"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.langxSubtext)
+
+                        HStack(spacing: 12) {
+                            ForEach(GlobalShortcutPreset.allCases) { preset in
+                                SelectionChip(
+                                    title: model.shortcutPresetTitle(preset),
+                                    isSelected: model.preferences.selectionTranslationShortcutPreset == preset
+                                ) {
+                                    model.selectSelectionTranslationShortcutPreset(preset)
                                 }
                             }
                         }

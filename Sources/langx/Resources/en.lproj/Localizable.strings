@@ -50,6 +50,10 @@
 "settings.quick_access" = "Quick Access";
 "settings.shortcut" = "Global shortcut";
 "settings.shortcut_hint" = "Register a system-wide shortcut to open the floating translator.";
+"settings.open_panel_shortcut" = "Open floating translator";
+"settings.open_panel_shortcut_hint" = "Register a system-wide shortcut that only brings the Quick Translate panel to the front.";
+"settings.selection_shortcut" = "Translate selected text";
+"settings.selection_shortcut_hint" = "Capture the current selection, prefer Accessibility when available, and fall back to copy when needed.";
 "settings.shortcut.off" = "Off";
 "settings.shortcut.option_space" = "Option + Space";
 "settings.shortcut.command_shift_space" = "Command + Shift + Space";

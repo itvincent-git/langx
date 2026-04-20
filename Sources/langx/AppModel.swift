@@ -21,20 +21,23 @@ final class AppModel: ObservableObject {
 
     private let storage: AppStorage
     private let detector: LanguageDetector
-    private let translator: CLITranslationService
+    private let translator: any TranslationServing
     private var detectionTask: Task<Void, Never>?
 
     init(
         storage: AppStorage = .shared,
         detector: LanguageDetector = LanguageDetector(),
-        translator: CLITranslationService = CLITranslationService()
+        translator: any TranslationServing = CLITranslationService(),
+        bootstrapOnInit: Bool = true
     ) {
         self.storage = storage
         self.detector = detector
         self.translator = translator
 
-        Task {
-            await bootstrap()
+        if bootstrapOnInit {
+            Task {
+                await bootstrap()
+            }
         }
     }
 
@@ -153,6 +156,11 @@ final class AppModel: ObservableObject {
         persistPreferences()
     }
 
+    func selectSelectionTranslationShortcutPreset(_ preset: GlobalShortcutPreset) {
+        preferences.selectionTranslationShortcutPreset = preset
+        persistPreferences()
+    }
+
     func setExecutablePath(_ path: String, for engine: TranslationEngine) {
         preferences.setExecutablePath(path, for: engine)
         persistPreferences()
@@ -170,6 +178,28 @@ final class AppModel: ObservableObject {
         Task {
             await runTranslation()
         }
+    }
+
+    func prepareTranslation(sourceText: String, autoTranslate: Bool) {
+        activeSection = .translate
+        errorMessage = nil
+        translatedText = ""
+        updateSourceText(sourceText)
+
+        guard autoTranslate else {
+            return
+        }
+
+        translate()
+    }
+
+    func presentSelectionCaptureError(_ error: SelectedTextCaptureError) {
+        errorMessage = error.localizedMessage(in: preferences.interfaceLanguage)
+        appendLog(
+            level: .error,
+            category: "selection",
+            message: "Selected text capture failed: \(error.errorDescription ?? error.localizedMessage(in: .english))"
+        )
     }
 
     func clearHistory() {

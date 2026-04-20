@@ -50,6 +50,10 @@
 "settings.quick_access" = "快速唤起";
 "settings.shortcut" = "全局快捷键";
 "settings.shortcut_hint" = "注册系统级快捷键，用来打开浮动翻译窗。";
+"settings.open_panel_shortcut" = "打开浮动翻译窗";
+"settings.open_panel_shortcut_hint" = "注册系统级快捷键，只负责拉起 Quick Translate 浮窗。";
+"settings.selection_shortcut" = "翻译当前选区";
+"settings.selection_shortcut_hint" = "优先通过辅助功能读取当前选中文本，失败时回退到复制方案。";
 "settings.shortcut.off" = "关闭";
 "settings.shortcut.option_space" = "Option + Space";
 "settings.shortcut.command_shift_space" = "Command + Shift + Space";

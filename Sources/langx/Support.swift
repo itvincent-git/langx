@@ -187,7 +187,21 @@ struct AppPreferences: Codable, Sendable {
     var interfaceLanguage: InterfaceLanguage = .english
     var preferStreaming: Bool = true
     var globalShortcutPreset: GlobalShortcutPreset = .off
+    var selectionTranslationShortcutPreset: GlobalShortcutPreset = .off
     var customExecutablePaths: [String: String] = [:]
+
+    init() {}
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedEngine = try container.decodeIfPresent(TranslationEngine.self, forKey: .selectedEngine) ?? .codex
+        defaultTargetLanguage = try container.decodeIfPresent(TranslationLanguage.self, forKey: .defaultTargetLanguage) ?? .english
+        interfaceLanguage = try container.decodeIfPresent(InterfaceLanguage.self, forKey: .interfaceLanguage) ?? .english
+        preferStreaming = try container.decodeIfPresent(Bool.self, forKey: .preferStreaming) ?? true
+        globalShortcutPreset = try container.decodeIfPresent(GlobalShortcutPreset.self, forKey: .globalShortcutPreset) ?? .off
+        selectionTranslationShortcutPreset = try container.decodeIfPresent(GlobalShortcutPreset.self, forKey: .selectionTranslationShortcutPreset) ?? .off
+        customExecutablePaths = try container.decodeIfPresent([String: String].self, forKey: .customExecutablePaths) ?? [:]
+    }
 
     mutating func setExecutablePath(_ path: String, for engine: TranslationEngine) {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -294,19 +308,22 @@ actor AppStorage {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init() {
-        let fileManager = FileManager.default
+    init(fileManager: FileManager = .default, baseURL: URL? = nil) {
         self.fileManager = fileManager
-        let supportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let baseURL: URL
-        if let supportURL {
-            baseURL = supportURL.appendingPathComponent("langx", isDirectory: true)
+        let resolvedBaseURL: URL
+        if let baseURL {
+            resolvedBaseURL = baseURL
         } else {
-            baseURL = fileManager.temporaryDirectory.appendingPathComponent("langx", isDirectory: true)
+            let supportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            if let supportURL {
+                resolvedBaseURL = supportURL.appendingPathComponent("langx", isDirectory: true)
+            } else {
+                resolvedBaseURL = fileManager.temporaryDirectory.appendingPathComponent("langx", isDirectory: true)
+            }
         }
 
-        historyURL = baseURL.appendingPathComponent("history.json")
-        preferencesURL = baseURL.appendingPathComponent("preferences.json")
+        historyURL = resolvedBaseURL.appendingPathComponent("history.json")
+        preferencesURL = resolvedBaseURL.appendingPathComponent("preferences.json")
 
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
